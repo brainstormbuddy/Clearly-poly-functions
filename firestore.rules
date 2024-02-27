@@ -1,0 +1,280 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+  
+  match /organizations/{orgId}/{document=**} {
+      allow read: if isAuthorizedUser(orgId);
+      allow write: if hasAuthorizedRole(orgId,['Admin','Owner']);
+    }
+    
+    
+  
+    // function isAuthorAndAdmin(userId, article) {
+    //   let isAuthor = article.author == userId;
+    //   let isAdmin = exists(/databases/$(database)/documents/admins/$(userId));
+    //   return isAuthor || isAdmin;
+    // }
+    
+    function isTestEmail(email) {
+    return email in ["hello@theappmesh.com", "hello+1@getpolyplatform.com", "hello+2@getpolyplatform.com"];
+    }
+    
+    function hasEmailDomain(orgId){
+    	let orgSettings = get(/databases/$(database)/documents/organizations/$(orgId)/settings/orgSettings).data;
+      
+      return
+      	orgSettings.value.keys().hasAny(["domains"])
+      		&& orgSettings.value.domains.size() != 0
+          && request.auth.token.email.split('@')[1] in orgSettings.value.domains;
+    }
+    
+    function isAuthorizedUser(orgId){
+				let access = get(/databases/$(database)/documents/organizations/$(orgId)).data.access;
+        
+    		return request.auth.uid != null //&& request.auth.token.email_verified &&
+    			&& (access == 'public'
+    					|| (access == 'emailList' 
+              	&& exists(/databases/$(database)/documents/organizations/$(orgId)/users/$(request.auth.token.email))
+              	&& get(/databases/$(database)/documents/organizations/$(orgId)/users/$(request.auth.token.email)).data.access == true)
+              || isTestEmail(request.auth.token.email)
+            ) 
+          || hasEmailDomain(orgId)
+          || isSuperAdmin(orgId);
+    }
+    
+    function hasAuthorizedRole(orgId,roles){
+    		return isAuthorizedUser(orgId)
+        	&& request.auth.token.email_verified
+    			&& (
+          	get(/databases/$(database)/documents/organizations/$(orgId)/userRoles/$(request.auth.uid)).data.role in roles
+           		|| isSuperAdmin(orgId)
+          	);
+    }
+    
+    function isSuperAdmin(orgId) {
+    	let orgData = get(/databases/$(database)/documents/organizations/$(orgId)).data;
+      let groupId = orgData.keys().hasAny(['groupId'])
+      	? orgData.groupId
+        : false;
+      	
+    	return hasSuperAdminAccess(groupId);
+    }
+    
+    function hasSuperAdminAccess(groupId) {
+    	return groupId != false && groupId != null
+        && request.auth.token.email_verified
+      	&& exists(/databases/$(database)/documents/groups/$(groupId)/superAdmins/$(request.auth.token.email))
+      	&& get(/databases/$(database)/documents/groups/$(groupId)/superAdmins/$(request.auth.token.email)).data.access == true;
+    }
+    
+    
+    function isQuestionSetNotExpired(orgId,questionSetId){
+        return request.time.toMillis() < (get(/databases/$(database)/documents/organizations/$(orgId)/questionSets/$(questionSetId)).data.closeDate);
+    }
+    
+    function newOrg(orgId){
+    	return !exists(/databases/$(database)/documents/organizations/$(orgId));
+    }
+    
+    // match /{document=**} {
+    //   allow read, write: if request.auth.token.email == "toastmasterfruit@gmail.com";
+    // }
+      // allow read: if get(/databases/$(database)/documents/organizations/$(orgId)).data.access == 'public' ||
+    	// get(/databases/$(database)/documents/organizations/$(orgId)).data.access == 'emailList' &&
+    	// true;
+      
+    match /groups/{groupId}{
+    	allow read: if hasSuperAdminAccess(groupId);
+    }
+      
+    match /organizations/{orgId}{
+      allow read: if request.auth.uid != null; //&& request.auth.token.email_verified;
+      allow create: if request.auth.uid != null && request.auth.token.email_verified;
+      allow update: if hasAuthorizedRole(orgId,['Owner']);
+    }
+    
+    match /organizations/{orgId}/settings/{setting}{
+    	allow read: if isAuthorizedUser(orgId);
+      allow write: if hasAuthorizedRole(orgId,['Owner']);
+    }
+    
+    match /organizations/{orgId}/notifications-drafts/{notification}{
+    	allow read, write: if hasAuthorizedRole(orgId,['Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/notifications-scheduled/{notification}{
+    	allow read, write: if hasAuthorizedRole(orgId,['Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/notifications-sent/{notification}{
+    	allow read: if isAuthorizedUser(orgId);
+      allow write: if hasAuthorizedRole(orgId,['Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/events/{event}{
+    	allow read: if isAuthorizedUser(orgId);
+      allow write: if hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);
+    }
+    
+   match /organizations/{orgId}/posts/{post}{
+    	allow read: if isAuthorizedUser(orgId);
+      allow write: if hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/favourites/{favourite}{
+    	allow read;
+      allow write;
+    }
+    
+    match /organizations/{orgId}/clicks/{click}{
+    	allow read;
+      allow write;
+    }
+    
+     match /organizations/{orgId}/appDownloads/{appDownload}{
+    	allow read;
+      allow write;
+    }
+    
+     match /organizations/{orgId}/engagements{
+    	allow read;
+      allow write;
+    }
+    
+    match /organizations/{orgId}/analyticsInfo{
+    	allow read;
+      allow write;
+    }
+    	
+    
+    match /organizations/{orgId}/reports/{reportId}{
+    allow read: if true
+    allow write: if true
+    // allow create: if true
+    	// allow read: if isAuthorizedUser(orgId) 
+    	// && get(/databases/$(database)/documents/organizations/$(orgId)/reports/$(reportId)).data.createdById == request.auth.uid;
+    allow create: if isAuthorizedUser(orgId);
+    }
+    
+    match /organizations/{orgId}/reports/{reportId}/messages/{messageId}{
+    allow read: if true
+    allow write: if true
+    allow create: if true
+    	// allow read: if get(/databases/$(database)/documents/organizations/$(orgId)/reports/$(reportId)).data.createdById == request.auth.uid
+    	// || hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);
+    	// allow create: if get(/databases/$(database)/documents/organizations/$(orgId)/reports/$(reportId)).data.createdById == request.auth.uid
+    	// || hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/messaging/{conversationId}{
+      allow read: if resource.data.createdById == request.auth.uid	|| hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);
+      allow write: if resource.data.createdById == request.auth.uid	|| hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);
+      allow create: if isAuthorizedUser(orgId);
+    }
+    
+    match /organizations/{orgId}/messaging/{conversationId}/messages/{messageId}{
+      // allow read: if true
+      // // allow write: if true
+      // allow create: if true
+        allow read, create: if !(exists(/databases/$(database)/documents/organizations/$(orgId)/messaging/$(conversationId)))
+        || get(/databases/$(database)/documents/organizations/$(orgId)/messaging/$(conversationId)).data.createdById == request.auth.uid
+        || hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);	
+      allow update: if false
+        // allow create: if get(/databases/$(database)/documents/organizations/$(orgId)/reports/$(reportId)).data.createdById == request.auth.uid
+        // || hasAuthorizedRole(orgId,['Events Manager','Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/questionSets/{questionSet}{
+    	allow read: if isAuthorizedUser(orgId);
+      allow write: if hasAuthorizedRole(orgId,['Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/questionSetResults/{questionSetResult}{
+    	allow read: if hasAuthorizedRole(orgId,['Admin','Owner']);
+      // allow write: if hasAuthorizedRole(orgId,['Admin','Owner']);
+    }
+    
+    match /organizations/{orgId}/questionSetResults/{questionSetId}/userResponses/{userResponseId}{
+    	allow read: if isAuthorizedUser(orgId) 
+      && (userResponseId == request.auth.uid || hasAuthorizedRole(orgId,['Admin','Owner']));
+      allow create: if isAuthorizedUser(orgId) && isQuestionSetNotExpired(orgId,questionSetId);
+      allow update: if isAuthorizedUser(orgId) && isQuestionSetNotExpired(orgId,questionSetId)
+      	&& get(/databases/$(database)/documents/organizations/$(orgId)/questionSets/$(questionSetId)).data.editable == true;
+    }
+    
+    match /organizations/{orgId}/userRoles/{user}{
+    	allow read: if hasAuthorizedRole(orgId, ['Admin','Owner']);
+      allow create: if request.auth.uid != null && (newOrg(orgId) || hasAuthorizedRole(orgId,['Admin','Owner']));
+      allow update: if hasAuthorizedRole(orgId,['Admin','Owner']);
+      allow delete: if hasAuthorizedRole(orgId,['Admin','Owner']);
+      
+       
+    }
+    
+    match /organizations/YkWTQfby7BBUqYRH3CTt/users/{user}{
+    
+    	allow read;
+      allow create;
+      allow update;
+      allow delete;
+      
+     
+    }
+    
+    match /organizations/{orgId}/users/{user}{
+    	allow read;
+      allow create;
+      allow update;
+      allow delete;
+    }
+    
+    match /organizations/{orgId}/users/{user}{
+    
+    	allow read: if hasAuthorizedRole(orgId, ['Admin','Owner']);
+      allow create: if request.auth.uid != null && (newOrg(orgId) || hasAuthorizedRole(orgId,['Admin','Owner']));
+      allow update: if hasAuthorizedRole(orgId,['Admin','Owner']);
+      allow delete: if hasAuthorizedRole(orgId,['Admin','Owner']);
+      
+     
+    }
+    
+    
+    
+    match /organizations/{orgId}/userLists/{list}{
+    	allow read: if hasAuthorizedRole(orgId, ['Admin','Owner']);
+      allow create: if request.auth.uid != null && (newOrg(orgId) || hasAuthorizedRole(orgId,['Admin','Owner']));
+      allow update: if hasAuthorizedRole(orgId,['Admin','Owner']);
+      allow delete: if hasAuthorizedRole(orgId,['Admin','Owner']);
+    }
+    
+    
+    match /admins/{id} {
+    	allow read, write: if id == request.auth.uid;
+    }
+    
+    match /admins/{id}/myOrganizations/{org} {
+    	allow read: if id == request.auth.uid;
+      allow write: if false;
+    }
+    
+    
+    match /customers/{uid} {
+      allow read: if request.auth.uid == uid;
+
+      match /checkout_sessions/{id} {
+        allow read, write: if request.auth.uid == uid;
+      }
+      match /subscriptions/{id} {
+        allow read: if request.auth.uid == uid;
+      }
+    }
+
+    match /products/{id} {
+      allow read: if true;
+
+      match /prices/{id} {
+        allow read: if true;
+      }
+    }
+  }
+}
